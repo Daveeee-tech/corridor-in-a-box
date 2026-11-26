@@ -22,6 +22,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reache
   `pnpm install`. The `corridor` job keeps `CORRIDOR_SIGNER_SECRET` on its verify step, is
   read-only, keeps the runner's real exit status through `tee`, and hands the run's facts over
   as an artifact. Documented in `docs/operations.md`.
+
 ### Added — Fall back to the next route before funds move ([#626](https://github.com/corridor-in-a-box/corridor-in-a-box/issues/626))
 
 - When the primary route fails before any funds move (a refused quote, a KYC rejection, or a
