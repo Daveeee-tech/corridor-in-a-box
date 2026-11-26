@@ -234,15 +234,59 @@ describe("the nightly workflow publishes the history", () => {
     "utf8",
   );
 
-  it("records every run, not only successful ones", () => {
-    expect(workflow).toContain("pnpm record:reference-run");
-    // A failure must not skip the record step, or the history has no failures.
-    const recordStep = workflow.slice(workflow.indexOf("name: Record the run"));
-    expect(recordStep.slice(0, 200)).toContain("always()");
+  // The jobs as text: from `  <name>:` up to the next top-level job.
+  const job = (name: string): string => {
+    const start = workflow.indexOf(`\n  ${name}:\n`);
+    expect(start, `job ${name}`).toBeGreaterThan(-1);
+    const rest = workflow.slice(start + 1);
+    const next = rest.slice(1).search(/\n {2}[a-z][\w-]*:\n/);
+    return next === -1 ? rest : rest.slice(0, next + 1);
+  };
+  const step = (body: string, name: string): string => {
+    const start = body.indexOf(`name: ${name}`);
+    expect(start, `step ${name}`).toBeGreaterThan(-1);
+    const next = body.indexOf("\n      - ", start);
+    return next === -1 ? body.slice(start) : body.slice(start, next);
+  };
+
+  it("keeps the signer on the corridor run and its real exit status", () => {
+    const run = step(job("corridor"), "Run the corridor to completed");
+    expect(run).toContain("CORRIDOR_SIGNER_SECRET: ${{ env.SIGNER_SECRET }}");
+    // A pipe into tee must not turn a failed run into a pass.
+    expect(run).toContain("${PIPESTATUS[0]}");
+    expect(run).toContain('exit "$status"');
   });
 
-  it("commits the file the web app reads", () => {
-    expect(workflow).toContain(HISTORY_PATH);
-    expect(workflow).toMatch(/contents:\s*write/);
+  it("hands every run, not only successful ones, to the publish job", () => {
+    const corridor = job("corridor");
+    expect(step(corridor, "Save the run's facts for the history")).toContain("always()");
+    expect(corridor).toMatch(
+      /upload-artifact@[0-9a-f]{40}[^\n]*\n\s+if: \$\{\{ always\(\) \}\}/,
+    );
+  });
+
+  it("never gives the job that holds secrets a token that can push", () => {
+    const corridor = job("corridor");
+    expect(corridor).toMatch(/permissions:\n\s+contents: read/);
+    expect(corridor).not.toMatch(/contents:\s*write/);
+    expect(corridor).not.toContain("git push");
+  });
+
+  it("commits the file the web app reads from a job with no secrets and no install", () => {
+    const publish = job("publish-history");
+    expect(publish).toContain("needs: corridor");
+    expect(publish).toContain("if: ${{ always() }}");
+    expect(publish).toMatch(/permissions:\n\s+contents: write/);
+    expect(publish).toContain(HISTORY_PATH);
+    expect(publish).toContain(
+      "node --experimental-strip-types scripts/record-reference-run.ts",
+    );
+    expect(publish).not.toContain("secrets.");
+    expect(publish).not.toContain("SIGNER_SECRET");
+    expect(publish).not.toContain("pnpm");
+    // Every action pinned by full commit SHA, like the rest of the file.
+    for (const uses of publish.matchAll(/uses: (\S+)/g)) {
+      expect(uses[1]).toMatch(/@[0-9a-f]{40}$/);
+    }
   });
 });

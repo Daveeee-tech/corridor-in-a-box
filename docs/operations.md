@@ -294,14 +294,30 @@ per run to `web/lib/generated/reference-runs.json` and commits it:
 Newest first, capped at 180 runs. Failed and cancelled runs are recorded too — a
 success rate needs denominators — and a re-run of the same workflow run id
 replaces its record. `pnpm record:reference-run` writes it (`GITHUB_RUN_ID`,
-`RUN_STARTED_AT`, `CORRIDOR_EXIT` and `RUN_LOG` are its inputs), and
-`web/lib/reference-runs.ts` reads it, including the latest entry the dashboard's
-`#586` panel shows, so both views come from one source.
+`RUN_STARTED_AT`, `RUN_FINISHED_AT`, `CORRIDOR_EXIT`, `RUN_CANCELLED` and
+`RUN_LOG` are its inputs), and `web/lib/reference-runs.ts` reads it, including
+the latest entry the dashboard's `#586` panel shows, so both views come from one
+source.
 
-The commit needs the workflow token to be allowed to push to the branch it runs
-on (`permissions: contents: write` is set in the workflow). If branch protection
-on `main` blocks that, allow `github-actions[bot]` or move the record to an
-unprotected data branch and read it from there.
+The write happens in two jobs, so the token that can push never sits next to the
+signing keys:
+
+- `corridor` (`permissions: contents: read`) runs the corridor with the signer,
+  keeps the runner's own exit status through the `tee` into `corridor-run.log`,
+  and always uploads a `reference-run-<run id>` artifact: the run's start and
+  finish times, exit status and whether it was cancelled, plus only the `trail:`
+  and transaction lines of the log (GitHub masks secrets in step logs, not in
+  artifacts).
+- `publish-history` (`needs: corridor`, `if: always()`,
+  `permissions: contents: write`) reads no secrets and installs nothing. It runs
+  the recorder with Node's built-in TypeScript type stripping, commits the file
+  and pushes. If the push is rejected because something landed meanwhile, it
+  starts again from the new tip, up to three times. A missing artifact (the
+  corridor job died before saving it) is still recorded, as a failure.
+
+The push needs the workflow token to be allowed to write to the branch it runs
+on. If branch protection on `main` blocks that, allow `github-actions[bot]` or
+move the record to an unprotected data branch and read it from there.
 
 ### `pnpm verify:crash-resume` — kill the service after settle
 

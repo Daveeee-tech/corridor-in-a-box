@@ -2,9 +2,13 @@
 //
 //   pnpm record:reference-run
 //
-// Called by .github/workflows/reference-corridor.yml as an `if: always()` step,
-// so a failed nightly is recorded too — a history of green runs only cannot
-// show a success rate. The workflow commits the file afterwards.
+// Called by the `publish-history` job of .github/workflows/reference-corridor.yml,
+// which runs `if: always()`, so a failed nightly is recorded too — a history of
+// green runs only cannot show a success rate. That job holds no secrets and runs
+// no `pnpm install`: it calls this file with plain `node --experimental-strip-types`,
+// which is why the import below names `./reference-runs.ts` and this file must
+// stay free of anything type stripping cannot erase (enums, namespaces, path
+// aliases, packages). The job commits the file afterwards.
 //
 // Inputs come from the Actions environment rather than arguments, because the
 // failure being recorded is often the one just before this step:
@@ -30,7 +34,7 @@ import {
   buildRecord,
   parseRuns,
   serializeRuns,
-} from "./reference-runs";
+} from "./reference-runs.ts";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const env = process.env;
