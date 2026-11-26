@@ -11,6 +11,7 @@ import {
   fail,
   isSettleableAmount,
   ok,
+  subAmounts,
   type CorridorError,
   type Money,
   type Outcome,
@@ -179,6 +180,12 @@ export interface EngineDeps {
    * option is tried.
    */
   maxAlternates?: number;
+  /**
+   * When true, the business guarantees estimated prices to the customer and absorbs
+   * rate differences between the guaranteed amount and anchor payout (RFC 0004 D4).
+   * Default setting for runs executed with these deps.
+   */
+  guaranteeEstimates?: boolean;
 }
 
 export interface RunResult {
@@ -190,6 +197,11 @@ export interface RunResult {
   readonly settlementRef?: SettlementRef;
   /** Ordered list of states the run passed through — useful for the example/CLI. */
   readonly trail: readonly CorridorState[];
+  /**
+   * Difference between guaranteed/shown payout and actual anchor payout (RFC 0004 D4).
+   * Recorded when guaranteeEstimates is on. Positive = gain, negative = loss, zero = exact match.
+   */
+  readonly estimateGap?: string;
 }
 
 export interface ExecuteOptions {
@@ -241,6 +253,18 @@ export interface ExecuteOptions {
    * job — this only keeps the ids correlatable until it is.
    */
   traceparent?: string;
+  /**
+   * When true, guarantee estimated prices and record estimateGap on the run (RFC 0004 D4).
+   */
+  guaranteeEstimates?: boolean;
+  /**
+   * Explicit guaranteed payout amount shown to customer. Defaults to the quote's destAmount.
+   */
+  guaranteedAmount?: string | Money;
+  /**
+   * Explicit actual payout amount delivered by anchor, overriding TransactionStatus.amountOut.
+   */
+  actualAmount?: string | Money;
 }
 
 /** The `cause` of a `DRY_RUN_COMPLETE` error: what the gate said before the run stopped. */
@@ -715,6 +739,15 @@ async function runAttempt(
   run.quoteFirm = q.value.firm;
   run.priceLabel = q.value.firm ? "locked" : "indicative";
   run.settlementAmount = q.value.sourceAmount.amount;
+
+  const guaranteeEstimates = Boolean(opts.guaranteeEstimates ?? deps.guaranteeEstimates);
+  let guaranteedAmountStr: string | undefined;
+  if (guaranteeEstimates) {
+    guaranteedAmountStr =
+      typeof opts.guaranteedAmount === "string"
+        ? opts.guaranteedAmount
+        : (opts.guaranteedAmount?.amount ?? q.value.destAmount?.amount);
+  }
   {
     const t = await advance("quoted", quoteSupplied ? { quoteSupplied: true } : undefined);
     if (!t.ok) return die(t.error);
@@ -1004,6 +1037,22 @@ async function runAttempt(
       }),
     );
     if (!r.ok) return finishFailure(r.error);
+
+    if (guaranteeEstimates && guaranteedAmountStr) {
+      const actualAmount =
+        (typeof opts.actualAmount === "string"
+          ? opts.actualAmount
+          : opts.actualAmount?.amount) ??
+        r.value.amountOut?.amount ??
+        opened.value.amountOut?.amount;
+      if (actualAmount !== undefined) {
+        const diff = subAmounts(actualAmount, guaranteedAmountStr);
+        if (diff.ok) {
+          run.estimateGap = diff.value;
+        }
+      }
+    }
+
     {
       const t = await advance("reconciled");
       if (!t.ok) return die(t.error);
@@ -1430,6 +1479,7 @@ function toResult(run: StoredRun, trail: readonly CorridorState[]): RunResult {
     settlementKind: run.settlementKind,
     settlementRef: run.settlementRef,
     trail,
+    ...(run.estimateGap !== undefined ? { estimateGap: run.estimateGap } : {}),
   };
 }
 
