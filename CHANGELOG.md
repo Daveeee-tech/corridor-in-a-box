@@ -17,6 +17,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reache
   the run (#734) is refused with `ROUTE_PINNED`.
 - The router's resolver option type is `RouteCandidate`, so it does not clash with the planner's
   RFC 0004 `RouteOption`.
+
 ### Added — router ranking function ([#611](https://github.com/corridor-in-a-box/corridor-in-a-box/issues/611))
 
 - `rank(options, { estimateMarginBps })` in `@corridor/router` orders route options per RFC 0004
