@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 import { hashCorridor, parseCorridor, type Corridor } from "@corridor/manifest";
 import { createMockAdapter, type AnchorAdapter } from "@corridor/adapter-kit";
-import type { RouteOption, RouteResolver } from "@corridor/router";
+import type { RouteCandidate, RouteResolver } from "@corridor/router";
 import {
   InMemoryAuditLog,
   InMemoryIdempotencyStore,
@@ -105,7 +105,7 @@ function failingAdapter(name: string, step: "quote" | "comply" | "open"): Anchor
 
 function resolverFor(primary: AnchorAdapter, alternates: AnchorAdapter[]): RouteResolver {
   return {
-    async resolve(): Promise<RouteOption & { alternates?: readonly RouteOption[] }> {
+    async resolve(): Promise<RouteCandidate & { alternates?: readonly RouteCandidate[] }> {
       return {
         receiving: primary,
         trust: "manifest",
@@ -152,7 +152,7 @@ describe("engine route fallback (RFC 0004)", () => {
       // The primary is marked failed and points forward to the linked run.
       const primaryRun = await d.idempotency!.get(baseKey);
       expect(primaryRun?.state).toBe("failed");
-      expect(primaryRun?.receivingAnchor).toBe("anchor-primary");
+      expect(primaryRun?.receivingDomain).toBe("d.example");
       const failedEntry = audit.entries.find(
         (e) => e.idempotencyKey === baseKey && e.to === "failed",
       );
@@ -328,7 +328,8 @@ describe("engine route fallback (RFC 0004)", () => {
       depositAddress: DEPOSIT,
       memo: "memo",
       memoType: "text",
-      receivingAnchor: "anchor-primary",
+      // Opened against a different receiving domain than the corridor resolves now.
+      receivingDomain: "other.example",
     });
 
     const base = createMockSubmitter();

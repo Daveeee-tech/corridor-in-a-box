@@ -16,7 +16,7 @@ import {
   type Outcome,
   type PaymentIntent,
 } from "@corridor/types";
-import type { RouteDecision, RouteResolver } from "@corridor/router";
+import type { RouteCandidate, RouteDecision, RouteResolver } from "@corridor/router";
 import { routeChoiceFor } from "./route-choice";
 import {
   AdapterQuoteProvider,
@@ -320,8 +320,8 @@ interface AttemptFallback {
 
 /** What the run body reports back about the decision it resolved. */
 interface AttemptInfo {
-  alternates: readonly RouteOption[];
-  nextOption?: RouteOption;
+  alternates: readonly RouteCandidate[];
+  nextOption?: RouteCandidate;
 }
 
 interface AttemptContext {
@@ -329,7 +329,7 @@ interface AttemptContext {
   readonly index: number;
   readonly limit: number;
   /** Pre-resolved option for an alternate; the primary resolves via the resolver. */
-  readonly option?: RouteOption;
+  readonly option?: RouteCandidate;
   readonly info: AttemptInfo;
   readonly fallback: AttemptFallback;
 }
@@ -355,8 +355,8 @@ export async function execute(
 
   let index = 0;
   let key = intent.idempotencyKey;
-  let option: RouteOption | undefined;
-  let alternates: readonly RouteOption[] = [];
+  let option: RouteCandidate | undefined;
+  let alternates: readonly RouteCandidate[] = [];
   let fallbackFrom: string | undefined;
 
   for (;;) {
@@ -605,9 +605,6 @@ async function runAttempt(
   const route = routed.value;
   const routeTrust = route.trust;
   const adapter = route.receiving;
-  // Pin the anchor this run opened with, so a resume that already reached
-  // `settling` can refuse a re-route (RFC 0004).
-  run.receivingAnchor = adapter.name;
   // Alternates belong to the primary decision; an alternate attempt reuses the
   // ordered list, so `<key>:alt2` is option 2 of that same decision.
   if (!plan.option) plan.info.alternates = route.alternates ?? [];
@@ -631,8 +628,9 @@ async function runAttempt(
   });
   const { advance, die, finishFailure } = context;
 
-  // Pin the resolved anchor domain and protocol on the run record (#624) so
-  // restarts and readers agree on which route was chosen.
+  // Pin the resolved receiving domain and protocol on the run record (#624) so
+  // restarts and readers agree on which route was chosen, and a resume that has
+  // reached `settling` can refuse a re-route (RFC 0004).
   run.receivingDomain = corridor.dest.endpoints.home_domain;
   run.routeProtocol = corridor.dest.protocol;
 
@@ -1345,13 +1343,21 @@ function createRunContext(init: RunContextInit): RunContext {
 async function failRun(
   init: Pick<
     RunContextInit,
-    "run" | "trail" | "deps" | "store" | "now" | "routeTrust" | "recordOutcome"
-  > &
-    Partial<Pick<RunContextInit, "routeDecision">>,
+    | "run"
+    | "trail"
+    | "deps"
+    | "store"
+    | "now"
+    | "routeTrust"
+    | "recordOutcome"
+    | "fallback"
+    | "routeDecision"
+  >,
   error: CorridorError,
   checks?: readonly CheckResult[],
 ): Promise<Err> {
-  const { run, trail, deps, store, now, routeTrust, routeDecision, recordOutcome } = init;
+  const { run, trail, deps, store, now, routeTrust, routeDecision, recordOutcome, fallback } =
+    init;
   if (!canTransition(run.state, "failed")) return { ok: false, error };
   const from = run.state;
   const route =
@@ -1384,6 +1390,10 @@ async function failRun(
     run.lastError,
     routeTrust,
     checks || route ? { ...(checks && { checks }), ...(route && { route }) } : undefined,
+    {
+      ...(run.version === 1 && fallback?.from && { fallbackFrom: fallback.from }),
+      ...(fallbackTo && { fallbackTo }),
+    },
   );
   await recordOutcome("failed", error);
   return { ok: false, error };
@@ -1569,28 +1579,29 @@ async function resumeRun(
   }
   const route = routed.value;
 
-  // --- route pinning: never switch anchors once settlement has started -----
-  // The run recorded the receiving anchor it opened with. A resume that resolves
-  // to a different anchor after `settling` would reconcile against the wrong
-  // anchor (or worse, settle a second time somewhere else), so it is refused and
-  // the stored row is left untouched and resumable. Legacy rows without the
-  // field keep their old behaviour. See RFC 0004.
+  // --- route pinning: never switch routes once settlement has started ------
+  // The run recorded the receiving domain it opened with (#624). A resume that
+  // resolves to a different receiving domain after `settling` would reconcile
+  // against the wrong anchor (or worse, settle a second time somewhere else), so
+  // it is refused and the stored row is left untouched and resumable. Legacy
+  // rows without the field keep their old behaviour. See RFC 0004.
+  const resolvedDomain = corridor.dest.endpoints.home_domain;
   if (
-    run.receivingAnchor !== undefined &&
-    run.receivingAnchor !== route.receiving.name &&
+    run.receivingDomain !== undefined &&
+    run.receivingDomain !== resolvedDomain &&
     hasReachedSettling(run.state)
   ) {
     (deps.logger ?? silentLogger).log("warn", "corridor.route.pinned", {
       idempotencyKey: run.idempotencyKey,
       corridorId: corridor.id,
       state: run.state,
-      openedWith: run.receivingAnchor,
-      resolvedNow: route.receiving.name,
+      openedWith: run.receivingDomain,
+      resolvedNow: resolvedDomain,
     });
     return fail(
       "ROUTE_PINNED",
-      `idempotencyKey ${run.idempotencyKey} reached ${run.state} at anchor ${run.receivingAnchor}; ` +
-        `resolver now returns ${route.receiving.name}, and a run cannot change route once settlement has started`,
+      `idempotencyKey ${run.idempotencyKey} reached ${run.state} at receiving domain ${run.receivingDomain}; ` +
+        `resolver now returns ${resolvedDomain}, and a run cannot change route once settlement has started`,
       { retryable: false },
     );
   }

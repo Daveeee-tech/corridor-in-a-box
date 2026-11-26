@@ -57,7 +57,6 @@ create table if not exists corridor_runs (
   deposit_address text,
   memo            text,
   memo_type       text,
-  receiving_anchor text,
   refund_id       text,
   last_error      text,
   owner           text,
@@ -90,9 +89,6 @@ const ALTER_TABLE_SQL = [
   `alter table corridor_runs add column if not exists deposit_address text;`,
   `alter table corridor_runs add column if not exists memo text;`,
   `alter table corridor_runs add column if not exists memo_type text;`,
-  // The receiving anchor a run opened with, so a resume can refuse to re-route a
-  // run that has already reached settling (RFC 0004).
-  `alter table corridor_runs add column if not exists receiving_anchor text;`,
   // JSON of what the settle leg was asked to pay, so a resumed run can re-verify it on-chain.
   `alter table corridor_runs add column if not exists settlement text;`,
   `alter table corridor_runs add column if not exists source_transaction_id text;`,
@@ -151,7 +147,6 @@ interface Row {
   deposit_address: string | null;
   memo: string | null;
   memo_type: string | null;
-  receiving_anchor: string | null;
   refund_id: string | null;
   last_error: string | null;
   owner: string | null;
@@ -199,7 +194,6 @@ function toRun(r: Row): StoredRun {
     depositAddress: r.deposit_address ?? undefined,
     memo: r.memo ?? undefined,
     memoType: (r.memo_type as StoredRun["memoType"]) ?? undefined,
-    receivingAnchor: r.receiving_anchor ?? undefined,
     refundId: r.refund_id ?? undefined,
     lastError: r.last_error ?? undefined,
     owner: r.owner ?? undefined,
@@ -255,7 +249,6 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
         run.depositAddress ?? null,
         run.memo ?? null,
         run.memoType ?? null,
-        run.receivingAnchor ?? null,
         run.refundId ?? null,
         run.lastError ?? null,
         run.owner ?? null,
@@ -392,7 +385,6 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
          deposit_address = excluded.deposit_address,
          memo            = excluded.memo,
          memo_type       = excluded.memo_type,
-         receiving_anchor = coalesce(corridor_runs.receiving_anchor, excluded.receiving_anchor),
          refund_id       = coalesce(corridor_runs.refund_id, excluded.refund_id),
          last_error      = excluded.last_error,
          settlement      = coalesce(corridor_runs.settlement, excluded.settlement),
@@ -415,7 +407,6 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
         run.depositAddress ?? null,
         run.memo ?? null,
         run.memoType ?? null,
-        run.receivingAnchor ?? null,
         run.refundId ?? null,
         run.lastError ?? null,
         run.owner ?? null,

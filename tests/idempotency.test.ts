@@ -262,7 +262,6 @@ function fakeDb(): Queryable & { table: Map<string, Record<string, unknown>> } {
           ...incoming,
           settlement_kind: incoming.settlement_kind ?? current?.settlement_kind,
           settlement_ref: incoming.settlement_ref ?? current?.settlement_ref,
-          receiving_anchor: current?.receiving_anchor ?? incoming.receiving_anchor,
           refund_id: current?.refund_id ?? incoming.refund_id,
           manifest_hash: current?.manifest_hash ?? incoming.manifest_hash,
           receiving_domain: current?.receiving_domain ?? incoming.receiving_domain,
@@ -394,27 +393,6 @@ describe("refund state round-trips", () => {
     const got = await store.get("k-rf");
     expect(got?.refundId).toBe("hash_back");
     expect(got?.stellarTxHash).toBe("hash_out");
-  });
-
-  it("PostgresIdempotencyStore round-trips receivingAnchor and keeps it once set", async () => {
-    // The anchor a run opened with is pinned once settlement starts, so a later
-    // snapshot that lost the field must not un-pin the route (RFC 0004).
-    const store = new PostgresIdempotencyStore(fakeDb());
-    await store.put({
-      idempotencyKey: "k-anchor",
-      corridorId: "c",
-      state: "settling",
-      version: 4,
-      receivingAnchor: "anchor-a",
-    });
-    expect((await store.get("k-anchor"))?.receivingAnchor).toBe("anchor-a");
-    await store.put({
-      idempotencyKey: "k-anchor",
-      corridorId: "c",
-      state: "settled",
-      version: 5,
-    });
-    expect((await store.get("k-anchor"))?.receivingAnchor).toBe("anchor-a");
   });
 
   it("PostgresIdempotencyStore never lets a later write erase refundId", async () => {

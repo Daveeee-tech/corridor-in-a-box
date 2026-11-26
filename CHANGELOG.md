@@ -7,6 +7,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reache
 
 ## [Unreleased]
 
+### Added — engine route fallback before funds move ([#626](https://github.com/corridor-in-a-box/corridor-in-a-box/issues/626))
+
+- `RouteDecision` gains an optional ordered `alternates: RouteCandidate[]`, and
+  `EngineDeps.maxAlternates` (default 2, `0` disables) bounds how many are tried. A run that
+  fails before any funds move — a refused quote, a KYC rejection, a transaction that cannot be
+  opened, or a pre-settle gate refusal — is marked `failed` and a linked run starts on the next
+  option under `<key>:alt1`, `<key>:alt2`. The audit entries carry `fallbackTo` on the failed run
+  and `fallbackFrom` on the alternate's first transition.
+- The boundary is settlement: `failRun` records no forward link once the run entered `settling`
+  or opened a source deposit, so a post-settle failure never starts an alternate. A run already
+  stores the receiving domain it opened with (`receivingDomain`), and resuming a run that has
+  reached `settling` against a different receiving domain is refused with the new `ROUTE_PINNED`
+  code (HTTP 409) and the stored row left untouched.
+- `tests/route-fallback.test.ts` covers failure at each pre-settle step, no fallback after
+  settle, the alternate limit, and the settling re-route refusal.
+
 ### Added — Planner step 1: `candidates()` by destination asset and country ([#604](https://github.com/corridor-in-a-box/corridor-in-a-box/issues/604))
 
 - `candidates(request, corridors)` in `@corridor/router` returns every configured corridor whose

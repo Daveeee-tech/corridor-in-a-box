@@ -44,17 +44,6 @@ export interface StoredRun {
   memo?: string;
   memoType?: "text" | "hash" | "id";
   /**
-   * The `name` of the receiving anchor this run opened with, recorded when the
-   * route is first picked so a resume can refuse to re-route a run that has
-   * already reached `settling` (RFC 0004). Once settlement starts the anchor is
-   * pinned: reconciling against a different anchor would poll the wrong
-   * transaction, so a resume that resolves to a different name is refused with
-   * `ROUTE_PINNED` rather than silently switching. Undefined on runs created
-   * before this field existed, which are allowed to resume under legacy
-   * behaviour (the guard is skipped).
-   */
-  receivingAnchor?: string;
-  /**
    * Identifier of a refund already requested for this run — the refund leg's
    * own reference, not the settlement's.
    *

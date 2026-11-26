@@ -16,7 +16,7 @@ import type { AllowedPriceLabel } from "./label-policy";
  * did. Reasons are short, PII-free strings (e.g. "attested 2h ago",
  * "p95 settle 41s"): they are written to the append-only audit trail.
  *
- * Deliberately not RFC 0004's planned `RouteOption`: this is only the part of
+ * Deliberately not the planner's RFC 0004 `RouteOption`: this is only the part of
  * an option the audit trail keeps about a choice.
  */
 export interface RankedOption {
@@ -49,7 +49,7 @@ export interface OptionRanking {
  * reached. A `RouteDecision` is one of these (the primary) plus, optionally,
  * ordered `alternates` the engine falls back to before any funds move (RFC 0004).
  */
-export interface RouteOption {
+export interface RouteCandidate {
   /** The receiving anchor chosen for this payment. */
   readonly receiving: AnchorAdapter;
   /** Sending anchor used to on-ramp funds for non-prefunded corridors. */
@@ -58,7 +58,7 @@ export interface RouteOption {
   readonly trust: "attested" | "manifest";
 }
 
-export interface RouteDecision extends RouteOption {
+export interface RouteDecision extends RouteCandidate {
   /**
    * Reserved for split routing across multiple anchors (weights sum to 1).
    * The engine ignores this field today and reads only `receiving`, so setting
@@ -74,6 +74,20 @@ export interface RouteDecision extends RouteOption {
    * See docs/route-resolver.md#recording-the-choice.
    */
   readonly ranking?: OptionRanking;
+  /**
+   * Ordered fallback options tried in turn when this route fails BEFORE any
+   * funds move — a refused quote, a KYC rejection, or a transaction that cannot
+   * be opened (RFC 0004). The engine marks the failed run and starts a linked
+   * run on the next option under the key `<key>:alt1`, then `<key>:alt2`, up to
+   * the configured limit (default 2). Once a run reaches `settling` no further
+   * option is tried and a resume that would change the route is refused, so an
+   * `alternates` entry is never reached after money has left.
+   *
+   * Optional and additive: a resolver that returns a single-anchor decision
+   * (the shipped `StaticRouteResolver` and `RegistryRouteResolver`) leaves it
+   * unset, and the engine behaves exactly as before.
+   */
+  readonly alternates?: readonly RouteCandidate[];
 }
 
 /**
