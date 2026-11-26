@@ -7,21 +7,31 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it reache
 
 ## [Unreleased]
 
-### Added — engine route fallback before funds move ([#626](https://github.com/corridor-in-a-box/corridor-in-a-box/issues/626))
+### Added — wallet route: settlement to a recipient account ([#647](https://github.com/corridor-in-a-box/corridor-in-a-box/issues/647))
 
-- `RouteDecision` gains an optional ordered `alternates: RouteCandidate[]`, and
-  `EngineDeps.maxAlternates` (default 2, `0` disables) bounds how many are tried. A run that
-  fails before any funds move — a refused quote, a KYC rejection, a transaction that cannot be
-  opened, or a pre-settle gate refusal — is marked `failed` and a linked run starts on the next
-  option under `<key>:alt1`, `<key>:alt2`. The audit entries carry `fallbackTo` on the failed run
-  and `fallbackFrom` on the alternate's first transition.
-- The boundary is settlement: `failRun` records no forward link once the run entered `settling`
-  or opened a source deposit, so a post-settle failure never starts an alternate. A run already
-  stores the receiving domain it opened with (`receivingDomain`), and resuming a run that has
-  reached `settling` against a different receiving domain is refused with the new `ROUTE_PINNED`
-  code (HTTP 409) and the stored row left untouched.
-- `tests/route-fallback.test.ts` covers failure at each pre-settle step, no fallback after
-  settle, the alternate limit, and the settling re-route refusal.
+- `WalletAdapter` in `@corridor/stellar` implements the anchor seam for a
+  `protocol: wallet` corridor. It opens an `adapter_settled` payment, submits one
+  plain Stellar payment to the recipient's account through the injected
+  `SettlementSubmitter` (so `StellarSettlementSubmitter` keeps the Horizon
+  submission and ledger confirmation), and reports `completed` only after that
+  confirmation. Concurrent or resumed confirms reuse the one submission.
+- It builds on the `protocol: wallet` manifest shape and `PaymentIntent.wallet` from
+  [#646](https://github.com/corridor-in-a-box/corridor-in-a-box/issues/646): the recipient
+  account and memo come from `intent.wallet`, and the adapter refuses a corridor whose
+  `dest.asset` or `dest.asset_issuer` differs from what settlement pays, since a wallet
+  route cannot convert assets.
+- `tests/wallet-adapter.test.ts` drives the adapter with a stubbed submitter:
+  quote, open, ledger-gated completion, idempotent confirm, submit failure,
+  invalid recipient/memo, refund refusal, and asset, issuer and protocol mismatch refusals.
+
+### Added — Daily rate summaries on the web app ([#596](https://github.com/corridor-in-a-box/corridor-in-a-box/issues/596))
+
+- A `/rates` page lists the latest validated daily summary per pair and source (date, source,
+  sample count, min, P25, median, P75, max). Nothing is hardcoded: an unset or broken source
+  shows no numbers.
+- A public, cached JSON endpoint at `/api/rate-summaries` serves the same data.
+- New env var `RATE_SUMMARIES_URL` (documented in `.env.example`) points at the daily summary
+  JSON from #595.
 
 ### Added — Planner step 1: `candidates()` by destination asset and country ([#604](https://github.com/corridor-in-a-box/corridor-in-a-box/issues/604))
 
